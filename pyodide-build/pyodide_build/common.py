@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import tomllib
 import zipfile
 from collections import deque
 from collections.abc import Generator, Iterable, Iterator, Mapping
@@ -330,6 +331,28 @@ def modify_wheel(wheel: Path) -> Iterator[Path]:
         pack_wheel(wheel_dir, wheel.parent)
 
 
+def retag_wheel(wheel_path: Path, platform: str) -> Path:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "wheel",
+            "tags",
+            wheel_path,
+            "--platform-tag",
+            platform,
+            "--remove",
+        ],
+        check=False,
+        encoding="utf-8",
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        logger.error(f"ERROR: Retagging wheel {wheel_path} to {platform} failed")
+        exit_with_stdio(result)
+    return wheel_path.parent / result.stdout.splitlines()[-1].strip()
+
+
 def extract_wheel_metadata_file(wheel_path: Path, output_path: Path) -> None:
     """Extracts the METADATA file from the given wheel and writes it to the
     output path.
@@ -391,3 +414,29 @@ def check_wasm_magic_number(file_path: Path) -> bool:
     WASM_BINARY_MAGIC = b"\0asm"
     with file_path.open(mode="rb") as file:
         return file.read(4) == WASM_BINARY_MAGIC
+
+
+def search_pyproject_toml(
+    curdir: str | Path, max_depth: int = 10
+) -> tuple[Path, dict[str, Any]] | tuple[None, None]:
+    """
+    Recursively search for the pyproject.toml file in the parent directories.
+    """
+
+    # We want to include "curdir" in parent_dirs, so add a garbage suffix
+    parent_dirs = (Path(curdir) / "garbage").parents[:max_depth]
+
+    for base in parent_dirs:
+        pyproject_file = base / "pyproject.toml"
+
+        if not pyproject_file.is_file():
+            continue
+
+        try:
+            with pyproject_file.open("rb") as f:
+                configs = tomllib.load(f)
+                return pyproject_file, configs
+        except tomllib.TOMLDecodeError as e:
+            raise ValueError(f"Could not parse {pyproject_file}.") from e
+
+    return None, None

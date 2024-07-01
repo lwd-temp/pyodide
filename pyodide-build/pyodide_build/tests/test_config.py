@@ -11,7 +11,7 @@ from pyodide_build.config import (
 )
 from pyodide_build.xbuildenv import CrossBuildEnvManager
 
-from .fixture import reset_cache, reset_env_vars, xbuildenv
+from .fixture import reset_cache, reset_env_vars, dummy_xbuildenv, dummy_xbuildenv_url
 
 
 class TestConfigManager_InTree:
@@ -62,9 +62,31 @@ class TestConfigManager_InTree:
         assert config["cmake_toolchain_file"] == "/path/to/toolchain"
         assert config["meson_cross_file"] == "/path/to/crossfile"
 
-    def test_load_config_from_file(self):
-        # TODO: Implement this
-        assert True
+    def test_load_config_from_file(self, tmp_path, reset_env_vars, reset_cache):
+        pyproject_file = tmp_path / "pyproject.toml"
+
+        env = {
+            "MESON_CROSS_FILE": "/path/to/crossfile",
+            "CFLAGS_BASE": "-O2",
+        }
+
+        pyproject_file.write_text("""[tool.pyodide.build]
+                                  invalid_flags = "this_should_not_be_parsed"
+                                  cflags = "$(CFLAGS_BASE) -I/path/to/include"
+                                  ldflags = "-L/path/to/lib"
+                                  rust_toolchain = "nightly"
+                                  meson_cross_file = "$(MESON_CROSS_FILE)"
+                                  """)
+
+        config_manager = ConfigManager(pyodide_root=ROOT_PATH)
+
+        config = config_manager._load_config_file(pyproject_file, env)
+
+        assert "invalid_flags" not in config
+        assert config["cflags"] == "-O2 -I/path/to/include"
+        assert config["ldflags"] == "-L/path/to/lib"
+        assert config["rust_toolchain"] == "nightly"
+        assert config["meson_cross_file"] == "/path/to/crossfile"
 
     def test_config_all(self):
         config_manager = ConfigManager(pyodide_root=ROOT_PATH)
@@ -83,8 +105,10 @@ class TestConfigManager_InTree:
 class TestConfigManager_OutOfTree:
     # Note: other tests are inherited from TestInTree
 
-    def test_makefile_envs(self, xbuildenv, reset_env_vars, reset_cache):
-        xbuildenv_manager = CrossBuildEnvManager(xbuildenv / common.xbuildenv_dirname())
+    def test_makefile_envs(self, dummy_xbuildenv, reset_env_vars, reset_cache):
+        xbuildenv_manager = CrossBuildEnvManager(
+            dummy_xbuildenv / common.xbuildenv_dirname()
+        )
         config_manager = ConfigManager(pyodide_root=xbuildenv_manager.pyodide_root)
 
         makefile_vars = config_manager._load_makefile_envs()
@@ -98,8 +122,12 @@ class TestConfigManager_OutOfTree:
         for key in default_config:
             assert key not in makefile_vars
 
-    def test_get_make_environment_vars(self, xbuildenv, reset_env_vars, reset_cache):
-        xbuildenv_manager = CrossBuildEnvManager(xbuildenv / common.xbuildenv_dirname())
+    def test_get_make_environment_vars(
+        self, dummy_xbuildenv, reset_env_vars, reset_cache
+    ):
+        xbuildenv_manager = CrossBuildEnvManager(
+            dummy_xbuildenv / common.xbuildenv_dirname()
+        )
         config_manager = ConfigManager(pyodide_root=xbuildenv_manager.pyodide_root)
         make_vars = config_manager._get_make_environment_vars()
         assert make_vars["PYODIDE_ROOT"] == str(xbuildenv_manager.pyodide_root)

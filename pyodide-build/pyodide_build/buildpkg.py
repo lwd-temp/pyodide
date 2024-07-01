@@ -4,18 +4,19 @@
 Builds a Pyodide package.
 """
 
-import cgi
 import fnmatch
+import http.client
 import os
+import re
 import shutil
 import subprocess
 import sys
-import urllib
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
-from urllib import parse, request
+
+import requests
 
 from . import common, pypabuild
 from .bash_runner import BashRunnerWithSharedEnvironment, get_bash_runner
@@ -26,6 +27,7 @@ from .build_env import (
     get_pyodide_root,
     pyodide_tags,
     replace_so_abi_tags,
+    wheel_platform,
 )
 from .common import (
     _environment_substitute_str,
@@ -35,6 +37,7 @@ from .common import (
     find_matching_wheels,
     make_zip_archive,
     modify_wheel,
+    retag_wheel,
 )
 from .io import MetaConfig, _SourceSpec
 from .logger import logger
@@ -169,7 +172,7 @@ class RecipeBuilder:
 
         with (
             chdir(self.pkg_root),
-            get_bash_runner(self._get_helper_vars()) as bash_runner,
+            get_bash_runner(self._get_helper_vars() | os.environ.copy()) as bash_runner,
         ):
             if self.recipe.is_rust_package():
                 bash_runner.run(
@@ -302,8 +305,12 @@ class RecipeBuilder:
         max_retry = 3
         for retry_cnt in range(max_retry):
             try:
-                response = request.urlopen(url)
-            except urllib.error.URLError as e:
+                response = requests.get(url)
+                response.raise_for_status()
+            except (
+                requests.exceptions.RequestException,
+                http.client.HTTPException,
+            ) as e:
                 if retry_cnt == max_retry - 1:
                     raise RuntimeError(
                         f"Failed to download {url} after {max_retry} trials"
@@ -313,18 +320,18 @@ class RecipeBuilder:
 
             break
 
-        # TODO: replace cgi with something else (will be removed in Python 3.13)
-        _, parameters = cgi.parse_header(
-            response.headers.get("Content-Disposition", "")
-        )
-        if "filename" in parameters:
-            tarballname = parameters["filename"]
-        else:
-            tarballname = Path(parse.urlparse(response.geturl()).path).name
-
         self.build_dir.mkdir(parents=True, exist_ok=True)
+
+        tarballname = url.split("/")[-1]
+        if "Content-Disposition" in response.headers:
+            filenames = re.findall(
+                "filename=(.+)", response.headers["Content-Disposition"]
+            )
+            if filenames:
+                tarballname = filenames[0]
+
         tarballpath = self.build_dir / tarballname
-        tarballpath.write_bytes(response.read())
+        tarballpath.write_bytes(response.content)
 
         checksum = self.source_metadata.sha256
         if checksum is not None:
@@ -421,6 +428,10 @@ class RecipeBuilder:
             raise Exception(
                 f"Unexpected number of wheels {len(rest) + 1} when building {self.name}"
             )
+
+        if "emscripten" in wheel.name:
+            # Retag platformed wheels to pyodide
+            wheel = retag_wheel(wheel, wheel_platform())
 
         logger.info(f"Unpacking wheel to {str(wheel)}")
 

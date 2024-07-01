@@ -33,8 +33,8 @@ jobs:
         shell: bash -l {0}
         run: |
           mkdir test-results
-          cd pyodide-build && python3 -m pip install -e ".[test,deploy]" && cd ..
-          python3 -m pip install pytest-cov hypothesis pytz
+          cd pyodide-build && python3 -m pip install -e ".[test]" && cd ..
+          python3 -m pip install -r requirements.txt -r requirements-deploy.txt
       - name: Run tests
         shell: bash -l {0}
         run: |
@@ -157,10 +157,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # os: [ubuntu-latest, macos-latest] # FIXME: macos + playwright is very unstable.
-        os: [ubuntu-latest]
-        runner: [playwright]
-        browser: [chrome]
+        os: [macos-14]
+        runner: [selenium]
+        browser: [safari]
 
     steps:
       - uses: actions/checkout@v4
@@ -180,9 +179,13 @@ jobs:
       - name: install test requirements
         shell: bash -l {0}
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-deploy.txt
           pip install -e ./pyodide-build
-          python -m playwright install
+
+      - uses: pyodide/pyodide-actions/install-browser@v1
+        with:
+          runner: ${{ matrix.runner }}
+          browser: ${{ matrix.browser }}
 
       - name: run core tests
         env:
@@ -192,7 +195,7 @@ jobs:
         run: |
           ls -lh
           ls -lh dist/
-          tools/pytest_wrapper.py src packages/micropip/ \
+          tools/pytest_wrapper.py src packages/micropip/ tools/ \
             -v \
             -k "not webworker" \
             --runtime="${BROWSER}-no-host" \

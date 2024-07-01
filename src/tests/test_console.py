@@ -119,8 +119,7 @@ def test_interactive_console():
         assert await get_result("") is None
         assert await get_result("factorial(10)") == 3628800
 
-        assert await get_result("import pytz") is None
-        assert await get_result("pytz.utc.zone") == "UTC"
+        assert await get_result("import pathlib") is None
 
         fut = shell.push("1+")
         assert fut.syntax_check == "syntax-error"
@@ -287,6 +286,18 @@ def test_nonpersistent_redirection(safe_sys_redirections):
         assert await get_result("sys.stderr.isatty()")
 
     asyncio.run(test())
+
+
+async def test_compile_optimize():
+    from pyodide.console import Console
+
+    console = Console(optimize=2)
+    await console.push("assert 0")
+
+    await console.push("def f():")
+    await console.push("    '''docstring'''\n\n")
+
+    assert await console.push("f.__doc__") is None
 
 
 @pytest.mark.skip_refcount_check

@@ -86,6 +86,7 @@ def get_pip_monkeypatch(venv_bin: Path) -> str:
                 print([
                     os.name,
                     sys.platform,
+                    platform.system(),
                     sys.implementation._multiarch,
                     sysconfig.get_platform()
                 ])
@@ -115,20 +116,41 @@ def get_pip_monkeypatch(venv_bin: Path) -> str:
             return sys.executable.removesuffix("-host")
 
         scripts.get_executable = get_executable
+
+        from pip._vendor.packaging import tags
+        orig_platform_tags = tags.platform_tags
+        """
+        # TODO: Remove the following monkeypatch when we merge and pull in
+        # https://github.com/pypa/packaging/pull/804
+        """
+        def _emscripten_platforms():
+            pyodide_abi_version = sysconfig.get_config_var("PYODIDE_ABI_VERSION")
+            if pyodide_abi_version:
+                yield f"pyodide_{pyodide_abi_version}_wasm32"
+            yield from tags._generic_platforms()
+
+        def platform_tags():
+            if platform.system() == "Emscripten":
+                yield from _emscripten_platforms()
+                return
+            return orig_platform_tags()
+
+        tags.platform_tags = platform_tags
         """
         f"""
-        os_name, sys_platform, multiarch, host_platform = {platform_data}
+        os_name, sys_platform, platform_system, multiarch, host_platform = {platform_data}
         os.name = os_name
         orig_platform = sys.platform
         sys.platform = sys_platform
+        sys.platlibdir = "lib"
         sys.implementation._multiarch = multiarch
-        platform.system = lambda: sys_platform
+        platform.system = lambda: platform_system
         platform.machine = lambda: "wasm32"
         os.environ["_PYTHON_HOST_PLATFORM"] = host_platform
         os.environ["_PYTHON_SYSCONFIGDATA_NAME"] = f'_sysconfigdata_{{sys.abiflags}}_{{sys.platform}}_{{sys.implementation._multiarch}}'
         sys.path.append("{sysconfigdata_dir}")
         import sysconfig
-        sysconfig.get_config_vars()
+        sysconfig._init_config_vars()
         del os.environ["_PYTHON_SYSCONFIGDATA_NAME"]
         sys.platform = orig_platform
         """

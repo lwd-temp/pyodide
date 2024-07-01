@@ -51,12 +51,12 @@ repos:
         args:
           [
             "--ignore-words-list",
-            "ags,aray,asend,ba,classs,crate,falsy,feld,inflight,lits,nd,slowy,te,oint",
+            "ags,aray,asend,ba,classs,crate,falsy,feld,inflight,lits,nd,slowy,te,oint,conveniant",
           ]
         exclude: ^(benchmark/benchmarks/pystone_benchmarks/pystone\.py|src/js/package-lock\.json)$
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: "v1.9.0"
+    rev: "v1.10.0"
     hooks:
       - id: mypy
         files: ^(packages/.*/src|src|pyodide-build/pyodide_build)
@@ -71,12 +71,12 @@ repos:
           - numpy
           - build
           - pytest
-          - pydantic<2
+          - pydantic>=2.0
           - unearth
           - resolvelib
           - rich
           - auditwheel_emscripten
-          - pyodide-lock==0.1.0a4
+          - pyodide-lock==0.1.0a5
           - micropip
       - id: mypy
         name: mypy-tests
